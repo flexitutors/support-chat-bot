@@ -90,11 +90,25 @@ You are a human representative for an educational consulting firm.
 5. OTHER: If message is spam or not educational/greeting, reply ONLY with "IGNORE".
 Message: "${text}"`;
 
-            const result = await model.generateContent(prompt);
             const responseText = result.response.text().trim();
-            if (responseText !== "IGNORE") await sock.sendMessage(msg.key.remoteJid, { text: responseText });
-        } catch (e) { console.error(e); }
-    });
+
+if (responseText === "IGNORE") return;
+
+await sock.sendPresenceUpdate("composing", msg.key.remoteJid);
+
+// About 40ms per character, minimum 2s, maximum 8s
+const delay = Math.min(
+    Math.max(responseText.length * 40, 2000),
+    8000
+);
+
+await new Promise(resolve => setTimeout(resolve, delay));
+
+await sock.sendMessage(msg.key.remoteJid, {
+    text: responseText
+});
+
+await sock.sendPresenceUpdate("paused", msg.key.remoteJid);    });
 
     sock.ev.on('connection.update', (update) => {
         if (update.connection === 'close') startBot();
