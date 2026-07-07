@@ -68,7 +68,7 @@ async function startBot() {
         const text = (msg.message.conversation || msg.message.extendedTextMessage?.text || "");
         
                try {
-            const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+            const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
             const prompt = `
 You are a human representative for an educational consulting firm.
 1. NEVER mention you are an AI. Speak as a human representative.
