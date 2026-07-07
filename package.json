@@ -1,0 +1,19 @@
+{
+  "name": "wa-education-bot",
+  "version": "1.0.0",
+  "description": "WhatsApp Educational P.A. Bot",
+  "main": "index.js",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "latest",
+    "@google/generative-ai": "latest",
+    "dotenv": "latest",
+    "pino": "latest",
+    "express": "latest"
+  }
+}
