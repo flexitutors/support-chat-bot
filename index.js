@@ -1,7 +1,14 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
+const {
+    default: makeWASocket,
+    useMultiFileAuthState,
+    DisconnectReason,
+    downloadMediaMessage
+} = require("@whiskeysockets/baileys");
+
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const express = require('express');
 const pino = require('pino');
+const { fileTypeFromBuffer } = require("file-type");
 require('dotenv').config();
 
 const app = express();
@@ -11,6 +18,18 @@ app.use(express.urlencoded({ extended: true }));
 
 let pairingCode = "Waiting for input...";
 let sock;
+
+let autoReplyEnabled = true;
+let autoEnableTimer = null;
+
+function scheduleAutoEnable(minutes = 30) {
+    clearTimeout(autoEnableTimer);
+
+    autoEnableTimer = setTimeout(() => {
+        autoReplyEnabled = true;
+        console.log("✅ Auto-reply automatically enabled.");
+    }, minutes * 60 * 1000);
+}
 
 // ===============================
 // Dashboard UI
@@ -145,6 +164,7 @@ app.post('/pair', async (req, res) => {
         return res.send("System initializing...");
     }
 
+
     try {
         pairingCode = await sock.requestPairingCode(phoneNumber);
         res.redirect('/');
@@ -183,14 +203,58 @@ sock.ev.on("messages.upsert", async ({ messages, type }) => {
         if (type !== "notify") return;
 
         const msg = messages[0];
+        const isImage = !!msg.message?.imageMessage;
 
-        if (msg.key.fromMe || !msg.message) return;
+        if (!msg.message) return;
 
         const text =
-            msg.message.conversation ||
-            msg.message.extendedTextMessage?.text ||
-            "";
+    msg.message.conversation ||
+    msg.message.extendedTextMessage?.text ||
+    msg.message.imageMessage?.caption ||
+    "";
 
+// Owner commands (messages sent by the paired account)
+if (msg.key.fromMe) {
+
+    const cmd = text.trim().toLowerCase();
+
+    if (cmd === "!off") {
+        autoReplyEnabled = false;
+        scheduleAutoEnable(30);
+
+        await sock.sendMessage(msg.key.remoteJid, {
+            text: "✅ Auto-reply disabled for 30 minutes."
+        });
+
+        return;
+    }
+
+    if (cmd === "!on") {
+        autoReplyEnabled = true;
+        clearTimeout(autoEnableTimer);
+
+        await sock.sendMessage(msg.key.remoteJid, {
+            text: "✅ Auto-reply enabled."
+        });
+
+        return;
+    }
+
+    if (cmd === "!status") {
+
+        await sock.sendMessage(msg.key.remoteJid, {
+            text: autoReplyEnabled
+                ? "🟢 Auto-reply is ON."
+                : "🔴 Auto-reply is OFF."
+        });
+
+        return;
+    }
+
+    return;
+}
+
+if (!autoReplyEnabled) return;
         try {
             const model = genAI.getGenerativeModel({
                 model: "gemini-2.5-flash"
@@ -225,8 +289,21 @@ Use this exact price list:
 - State of Origin: 12,000 Naira
 - Assignment/Projects:
   Ask for details before giving a quotation.
+5. IMAGE MESSAGES:
+If the user sends an image:
 
-5. OTHER:
+- If it is a payment receipt, reply:
+"Thank you for sending your payment receipt. We are connecting you to our payment verification team. Kindly wait while your payment is being confirmed."
+
+- If it is an assignment, solve it.
+
+- If it is a mathematics, chemistry, physics, biology or other educational question, answer it.
+
+- If it is a document, explain it.
+
+- If it is unrelated to education, respond politely.
+
+6. OTHER:
 If the message is spam or unrelated to education or greetings,
 reply ONLY with:
 
@@ -236,9 +313,40 @@ Message:
 "${text}"
 `;
 
-            const result = await model.generateContent(prompt);
+let result;
 
-            const responseText = result.response.text().trim();
+if (isImage) {
+
+    const buffer = await downloadMediaMessage(
+        msg,
+        "buffer",
+        {},
+        {
+            logger: pino({ level: "silent" }),
+            reuploadRequest: sock.updateMediaMessage
+        }
+    );
+
+    const fileType = await fileTypeFromBuffer(buffer);
+
+    result = await model.generateContent([
+        {
+            inlineData: {
+               mimeType: fileType.mime,
+                data: buffer.toString("base64")
+            }
+        },
+        prompt
+    ]);
+
+} else {
+
+    result = await model.generateContent(prompt);
+
+}
+
+const responseText = 
+result.response.text().trim();
 
             // Ignore immediately
             if (responseText === "IGNORE") return;
